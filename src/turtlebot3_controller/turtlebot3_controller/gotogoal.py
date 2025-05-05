@@ -14,7 +14,7 @@ class Gotogoal(Node):
         
         self.subscription = self.create_subscription(
             Odometry,
-            'odom',
+            'odom2',
             self.callback_navigate,
             10)
         self.subscription  # prevent unused variable warning
