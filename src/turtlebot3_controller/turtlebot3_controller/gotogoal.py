@@ -33,13 +33,11 @@ class Gotogoal(Node):
 
 
         # State variables and thresholds
-        self.obstacle_ahead = False
-        self.wall_distance_right = float('inf')
-        self.path_to_goal_clear = True
+        self.obstacle_detected = False
         self.front_clearance = 0.5  # [m]
         self.side_clearance = 0.5  # [m]
-        self.desired_wall_distance = 0.3 # [m] when following a wall
         self.desired_angle_window = 0.3 # [rad] = 17.2[deg] angle window for front scan and right scan
+        self.max_angular_speed = 1.5 # [rad/s]
 
         # State for wall-following
         # if the robot finds a wall in front, it will turn left
@@ -55,15 +53,8 @@ class Gotogoal(Node):
 
     def compute_wall_following(self, out_msg):
 
-        # Proportional control for wall-following
-        wall_error = self.wall_distance_right - self.desired_wall_distance
-
-        Kp_wall = 1.0
-        angular_z = -Kp_wall * wall_error
-        linear_x = 0.1  # slow, steady forward
-
-        out_msg.linear.x = linear_x
-        out_msg.angular.z = np.clip(angular_z, -0.5, 0.5) # max angular speed
+        out_msg.linear.x = 0.0
+        out_msg.angular.z = self.max_angular_speed
 
         return out_msg
 
@@ -77,7 +68,7 @@ class Gotogoal(Node):
         linear_x = Kp_lin * distance_to_goal
         angular_z = Kp_ang * angle_diff
 
-        angular_z = np.clip(angular_z, -1.5, 1.5)  # max angular speed
+        angular_z = np.clip(angular_z, -self.max_angular_speed, self.max_angular_speed)  # max angular speed
         linear_x = np.clip(linear_x, 0.0, 0.22)    # max linear speed
 
         out_msg.linear.x = linear_x
@@ -88,7 +79,7 @@ class Gotogoal(Node):
 
 # -------------------------------------------------------------- #
 
-    def closest_goal(self, goals):
+    def closest_goal(self, goals, current_x, current_y):
         
         if not goals:
             return None
@@ -98,7 +89,7 @@ class Gotogoal(Node):
         goal_index = None
 
         for i, (goal_x, goal_y) in enumerate(goals):
-            distance = np.sqrt((goal_x - self.goals[i][0]) ** 2 + (goal_y - self.goals[i][1]) ** 2)
+            distance = np.sqrt((goal_x - current_x) ** 2 + (goal_y - current_y) ** 2)
             if distance < closest_distance:
                 closest_distance = distance
                 goal_index = i
@@ -110,10 +101,6 @@ class Gotogoal(Node):
         
     def callback_navigate(self, in_msg):
         out_msg = Twist()
-
-        goal = self.closest_goal(self.goals)
-        # Get the current goal coordinates
-        goal_x, goal_y = self.goals[goal]
 
         # Extract position and orientation from the Odometry message
         position = in_msg.pose.pose.position
@@ -130,6 +117,14 @@ class Gotogoal(Node):
         current_y = position.y
         current_yaw = yaw
 
+        # Goal
+        goal = self.closest_goal(self.goals, current_x, current_y)  # closest goal index
+        if goal is None:
+            goal_x, goal_y = current_x, current_y
+            self.get_logger().info("All goals reached! Stopping.")
+        else:
+            goal_x, goal_y = self.goals[goal]  # current goal coordinates
+
         # Calculate the distance to the goal
         distance_to_goal = np.sqrt((goal_x - current_x) ** 2 + (goal_y - current_y) ** 2)
         # Calculate the angle to the goal
@@ -141,11 +136,11 @@ class Gotogoal(Node):
 
 
         # Navgation mode switching
-        if not self.following_wall and self.obstacle_ahead:
+        if not self.following_wall and self.obstacle_detected:
             self.following_wall = True
             self.get_logger().info("Obstacle detected: switching to wall-following.")
 
-        elif self.following_wall and self.path_to_goal_clear:
+        elif self.following_wall and not self.obstacle_detected:
             self.following_wall = False
             self.get_logger().info("Path to goal clear: resuming goal-seeking.")
 
@@ -157,11 +152,7 @@ class Gotogoal(Node):
             out_msg.angular.z = 0.0
             self.get_logger().info("Goal reached! I will go to the next goal.")
             self.goals.pop(goal) # remove the goal from the list
-            goal = self.closest_goal(self.goals) # switch to the next goal
-            # Check if we have reached all goals
-            if goal == None:
-                self.get_logger().info("All goals reached! Stopping.")
-
+            goal = self.closest_goal(self.goals, current_x, current_y) # switch to the next goal
 
         elif self.following_wall == True:
             out_msg = self.compute_wall_following(out_msg)
@@ -180,7 +171,7 @@ class Gotogoal(Node):
 
         num_rays = len(ranges)
 
-        # Define angle windows (adjust based on LIDAR FOV and resolution)
+        # Define angle windows 
         idx_front = int((0.0 - scan_msg.angle_min)/scan_msg.angle_increment)
         idx_right = int((-np.pi/2 - scan_msg.angle_min)/scan_msg.angle_increment)
         window = int(self.desired_angle_window/scan_msg.angle_increment)
@@ -192,10 +183,10 @@ class Gotogoal(Node):
         right_dist = np.mean(ranges[right_indices]) # uses MEAN to detect the wall distance
 
         # Update state variables
-        self.obstacle_ahead = front_dist < self.front_clearance
-        self.wall_distance_right = right_dist
-        self.path_to_goal_clear = (front_dist > self.front_clearance) and (right_dist > self.side_clearance)
+        self.obstacle_detected = front_dist < self.front_clearance
+        self.obstacle_on_right = right_dist < self.side_clearance
 
+    
 
 # -------------------------------------------------------------- #
 
