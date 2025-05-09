@@ -53,7 +53,7 @@ class Gotogoal(Node):
 
     def compute_wall_following(self, out_msg):
 
-        out_msg.linear.x = 0.0
+        out_msg.linear.x = 0.5
         out_msg.angular.z = self.max_angular_speed
 
         return out_msg
