@@ -172,14 +172,21 @@ class Gotogoal(Node):
         num_rays = len(ranges)
 
         # Define angle windows 
-        idx_front = int((0.0 - scan_msg.angle_min)/scan_msg.angle_increment)
-        idx_right = int((-np.pi/2 - scan_msg.angle_min)/scan_msg.angle_increment)
-        window = int(self.desired_angle_window/scan_msg.angle_increment)
-        front_indices = slice(idx_front-window, idx_front+window+1)
-        right_indices = slice(idx_right-window, idx_right+window+1)
+        # angle_min = 0.0
+        # angle_max = 6.28 
+        # angle_increment = 0.0174533 it is positive so it means lidar rotates counter-clockwise
+        idx_front = round((0.0 - scan_msg.angle_min)/scan_msg.angle_increment)   # = 0
+        idx_right = round((-np.pi/2 - scan_msg.angle_min)/scan_msg.angle_increment) # = -90 
+        window = round(self.desired_angle_window/scan_msg.angle_increment) # = 17
+        
+        front_indices_1 = slice(idx_front, idx_front+window+1) # [0, 17]
+        front_indices_2 = slice(idx_front-window+num_rays, idx_front+num_rays) # [-17, 0]+360 = [343, 359]
+        right_indices = slice(idx_right-window+num_rays, idx_right+window+num_rays+1) # [-107, -74] + 360 = [253, 288] 
 
         # Compute stats
-        front_dist = np.min(ranges[front_indices])  # uses MIN to detect most dangerous obstacle
+        front_dist_1 = np.min(ranges[front_indices_1])  # uses MIN to detect most dangerous obstacle
+        front_dist_2 = np.min(ranges[front_indices_2])  # uses MIN to detect most dangerous obstacle
+        front_dist = np.min([front_dist_1, front_dist_2])
         right_dist = np.mean(ranges[right_indices]) # uses MEAN to detect the wall distance
 
         # Update state variables
