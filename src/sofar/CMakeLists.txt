@@ -35,4 +35,8 @@ install(PROGRAMS
   scripts/gotogoal.py
   DESTINATION lib/${PROJECT_NAME})
 
+install(DIRECTORY models/
+  DESTINATION share/${PROJECT_NAME}/
+)
+
 ament_package()
